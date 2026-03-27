@@ -566,7 +566,11 @@ function renderGameStep1() {
 
   const count = selectedPlayerIds.length;
   const canStart = count === 3 || count === 4;
-  html += `<button class="btn btn-primary" ${canStart ? '' : 'disabled style="opacity:0.5"'} onclick="startGameInput()">このメンバーで開始 (${count}人麻雀)</button>`;
+  if (canStart) {
+    html += `<button class="btn btn-primary" onclick="startGameInput()">このメンバーで開始 (${count}人麻雀)</button>`;
+  } else {
+    html += `<button class="btn btn-primary" style="opacity:0.5;pointer-events:none">メンバーを選択してください</button>`;
+  }
   if (count > 0 && count < 3) {
     html += '<p class="error-msg">3人または4人を選択してください</p>';
   }

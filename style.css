@@ -906,8 +906,19 @@ tr.total-row { background: var(--primary-light); font-weight: 700; }
   justify-content: center;
 }
 
-.btn-edit { color: var(--primary); }
-.btn-delete { color: var(--danger); }
+.btn-edit, .btn-delete {
+  border: none;
+  background: none;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+  padding: 10px 14px;
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 8px;
+}
+.btn-edit { color: var(--primary); background: var(--primary-light); }
+.btn-delete { color: var(--danger); background: #ffebee; }
 
 /* Data management */
 .data-section-title {

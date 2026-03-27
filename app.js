@@ -681,6 +681,7 @@ window.closeModal = function () {
 
 // ---- Game (Step 2: Score Input) ----
 function renderGameStep2() {
+  autoFilledIdx = -1;
   const count = currentGamePlayerCount;
   const settings = Store.getSettings();
   const uma = gameInputState.uma || settings.defaultUma[String(count)];
@@ -749,33 +750,54 @@ window.toggleChipInputs = function () {
   document.getElementById('chip-section').style.display = rate > 0 ? 'block' : 'none';
 };
 
+let autoFilledIdx = -1; // which field was auto-filled
+
 window.autoCalcLastScore = function () {
   const count = currentGamePlayerCount;
   const okaStr = document.getElementById('game-oka').value;
   const startPoints = parseInt(okaStr.split('-')[0], 10);
   const total = startPoints * count;
 
-  // Check how many fields are filled
+  // Clear previous auto-fill marker if user edited that field
+  if (autoFilledIdx >= 0) {
+    const autoInput = document.getElementById('game-score-' + autoFilledIdx);
+    if (autoInput && document.activeElement === autoInput) {
+      // User is editing the auto-filled field, clear marker
+      autoFilledIdx = -1;
+    }
+  }
+
+  // Count manually entered fields (ignore auto-filled field)
   const values = [];
   let emptyIdx = -1;
   let emptyCount = 0;
   for (let i = 0; i < count; i++) {
-    const val = document.getElementById('game-score-' + i).value.trim();
-    if (val === '' || isNaN(parseInt(val, 10))) {
+    const input = document.getElementById('game-score-' + i);
+    const val = input.value.trim();
+    if (i === autoFilledIdx || val === '' || isNaN(parseInt(val, 10))) {
       emptyIdx = i;
       emptyCount++;
     } else {
-      values.push({ idx: i, val: parseInt(val, 10) });
+      values.push(parseInt(val, 10));
     }
   }
 
-  // If exactly 1 field is empty, auto-fill it
+  // If exactly 1 field is empty/auto-filled, calculate it
   if (emptyCount === 1) {
-    const sum = values.reduce((a, b) => a + b.val, 0);
+    const sum = values.reduce((a, b) => a + b, 0);
     const remaining = total - sum;
     const input = document.getElementById('game-score-' + emptyIdx);
     input.value = remaining;
     input.style.color = remaining < 0 ? '#d32f2f' : '';
+    input.style.opacity = '0.7';
+    autoFilledIdx = emptyIdx;
+  } else {
+    // Clear auto-fill styling if conditions no longer met
+    if (autoFilledIdx >= 0) {
+      const prev = document.getElementById('game-score-' + autoFilledIdx);
+      if (prev) { prev.style.opacity = ''; prev.style.color = ''; }
+      autoFilledIdx = -1;
+    }
   }
 };
 

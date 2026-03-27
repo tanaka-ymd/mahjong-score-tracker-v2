@@ -144,11 +144,11 @@ const Store = {
     return this.getUsers().filter(u => !u.deleted);
   },
   getUserName(id) {
-    const u = this.getAllUsers().find(x => x.id === id);
+    const u = this.getUsers().find(x => x.id === id);
     return u ? esc(u.name) : '???';
   },
   getUserNameRaw(id) {
-    const u = this.getAllUsers().find(x => x.id === id);
+    const u = this.getUsers().find(x => x.id === id);
     return u ? u.name : '???';
   },
 

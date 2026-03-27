@@ -698,7 +698,7 @@ function renderGameStep2() {
     const color = PLAYER_COLORS[i] || '#333';
     html += `<div class="input-row">
       <label style="color:${color}">${name}</label>
-      <input type="number" id="game-score-${i}" placeholder="点数" inputmode="numeric" step="100">
+      <input type="number" id="game-score-${i}" placeholder="点数" inputmode="text" pattern="-?[0-9]*" step="100">
     </div>`;
   });
 
@@ -730,7 +730,7 @@ function renderGameStep2() {
     const name = Store.getUserName(id);
     html += `<div class="input-row">
       <label>${name}</label>
-      <input type="number" id="game-chip-${i}" placeholder="±枚数" inputmode="numeric" value="0">
+      <input type="number" id="game-chip-${i}" placeholder="±枚数" inputmode="text" pattern="-?[0-9]*" value="0">
     </div>`;
   });
   html += '</div>';

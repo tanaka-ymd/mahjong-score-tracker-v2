@@ -482,6 +482,180 @@ function calcStableDan(avgRank, gameCount, playerCount) {
   return { dan: '新人', r };
 }
 
+function generateAIComments(games, userId) {
+  const comments = [];
+  if (games.length < 5) {
+    comments.push({ icon: '📊', title: 'データ収集中', text: '対局を重ねるとアドバイスが表示されます' });
+    return comments;
+  }
+
+  // 基本統計を計算
+  let totalScore = 0, rankSum = 0, first = 0, second = 0, last = 0;
+  games.forEach(g => {
+    const idx = g.playerIds.indexOf(userId);
+    totalScore += g.finalScores[idx];
+    rankSum += g.rankings[idx];
+    if (g.rankings[idx] === 1) first++;
+    if (g.rankings[idx] === 2) second++;
+    if (g.rankings[idx] === g.playerCount) last++;
+  });
+  totalScore = Math.round(totalScore * 10) / 10;
+  const avgRank = rankSum / games.length;
+  const topRate = first / games.length;
+  const rentaiRate = (first + second) / games.length;
+  const lastRate = last / games.length;
+
+  // 連勝/連敗計算
+  let currentStreak = 0, streakType = '';
+  let currentLastStreak = 0;
+  for (let i = games.length - 1; i >= 0; i--) {
+    const idx = games[i].playerIds.indexOf(userId);
+    const rank = games[i].rankings[idx];
+    if (i === games.length - 1) {
+      if (rank === 1) { streakType = 'win'; currentStreak = 1; }
+      else if (rank === games[i].playerCount) { streakType = 'last'; currentStreak = 1; currentLastStreak = 1; }
+      else { streakType = 'lose'; currentStreak = 1; }
+    } else {
+      if (streakType === 'win' && rank === 1) { currentStreak++; }
+      else if (streakType === 'last' && rank === games[i].playerCount) { currentStreak++; currentLastStreak++; }
+      else if (streakType === 'lose' && rank !== 1) { currentStreak++; if (rank === games[i].playerCount) currentLastStreak++; }
+      else break;
+    }
+  }
+
+  // 直近10局の統計
+  const recent = games.slice(-10);
+  let recentRankSum = 0, recentFirst = 0, recentLast = 0;
+  recent.forEach(g => {
+    const idx = g.playerIds.indexOf(userId);
+    recentRankSum += g.rankings[idx];
+    if (g.rankings[idx] === 1) recentFirst++;
+    if (g.rankings[idx] === g.playerCount) recentLast++;
+  });
+  const recentAvgRank = recentRankSum / recent.length;
+  const recentTopRate = recentFirst / recent.length;
+  const recentLastRate = recentLast / recent.length;
+
+  // 対戦相手別
+  const opponentStats = {};
+  games.forEach(g => {
+    const myIdx = g.playerIds.indexOf(userId);
+    const myRank = g.rankings[myIdx];
+    g.playerIds.forEach((pid, i) => {
+      if (pid === userId) return;
+      if (!opponentStats[pid]) opponentStats[pid] = { games: 0, wins: 0 };
+      opponentStats[pid].games++;
+      if (myRank < g.rankings[i]) opponentStats[pid].wins++;
+    });
+  });
+
+  // 時間帯別
+  const hourStats = {};
+  games.forEach(g => {
+    const idx = g.playerIds.indexOf(userId);
+    const h = new Date(g.timestamp).getHours();
+    const slot = Math.floor(h / 4);
+    const slotNames = ['深夜(0-3時)', '早朝(4-7時)', '午前(8-11時)', '昼(12-15時)', '夕方(16-19時)', '夜(20-23時)'];
+    const key = slotNames[slot];
+    if (!hourStats[key]) hourStats[key] = { sum: 0, count: 0 };
+    hourStats[key].sum += g.rankings[idx];
+    hourStats[key].count++;
+  });
+
+  // --- コメント生成（優先度順） ---
+
+  // 1. 連勝/連敗
+  if (streakType === 'win' && currentStreak >= 3) {
+    comments.push({ icon: '🔥', title: '絶好調！', text: `現在${currentStreak}連勝中。この勢いを維持しよう！`, priority: 100 });
+  }
+  if (currentLastStreak >= 3) {
+    comments.push({ icon: '🆘', title: '要注意', text: `${currentLastStreak}連続ラスです。一度冷静になって立て直そう`, priority: 95 });
+  } else if (streakType === 'lose' && currentStreak >= 3) {
+    comments.push({ icon: '📉', title: 'スランプ気味', text: `${currentStreak}連続トップ逃し。焦らず打とう`, priority: 90 });
+  }
+
+  // 2. 直近の調子（10局以上ある場合）
+  if (games.length >= 10) {
+    if (recentAvgRank < avgRank - 0.3) {
+      comments.push({ icon: '📈', title: '調子上昇中', text: `直近10局の平均順位${recentAvgRank.toFixed(2)}位（通算${avgRank.toFixed(2)}位）`, priority: 80 });
+    } else if (recentAvgRank > avgRank + 0.3) {
+      comments.push({ icon: '📉', title: '調子下降気味', text: `直近10局の平均順位${recentAvgRank.toFixed(2)}位（通算${avgRank.toFixed(2)}位）`, priority: 80 });
+    }
+    if (recentTopRate >= 0.5) {
+      comments.push({ icon: '👑', title: 'トップ量産中', text: `直近10局で${recentFirst}回トップ！絶好調`, priority: 75 });
+    }
+    if (recentLastRate >= 0.4) {
+      comments.push({ icon: '⚠️', title: 'ラス注意', text: `直近10局で${recentLast}回ラス。守備を意識してみては？`, priority: 85 });
+    }
+  }
+
+  // 3. 通算成績
+  if (avgRank < 2.0) {
+    comments.push({ icon: '🏆', title: '素晴らしい成績', text: `平均順位${avgRank.toFixed(2)}位は相当な実力`, priority: 60 });
+  }
+  if (rentaiRate >= 0.7) {
+    comments.push({ icon: '🎯', title: '安定感抜群', text: `連対率${(rentaiRate * 100).toFixed(1)}%。安定した打ち筋`, priority: 55 });
+  }
+  if (1 - lastRate >= 0.9 && games.length >= 10) {
+    comments.push({ icon: '🛡️', title: 'ラス回避の達人', text: `ラス回避率${((1 - lastRate) * 100).toFixed(1)}%`, priority: 50 });
+  }
+
+  // 4. 対戦相手
+  Object.entries(opponentStats).forEach(([pid, s]) => {
+    if (s.games < 5) return;
+    const wr = s.wins / s.games;
+    const name = Store.getUserNameRaw(pid);
+    if (wr < 0.3) {
+      comments.push({ icon: '💡', title: `${name}さんが苦手？`, text: `対${name}：勝率${(wr * 100).toFixed(0)}% (${s.games}局)。意識して対策を`, priority: 45 });
+    } else if (wr >= 0.8) {
+      comments.push({ icon: '💪', title: `${name}さんに得意`, text: `対${name}：勝率${(wr * 100).toFixed(0)}% (${s.games}局)`, priority: 40 });
+    }
+  });
+
+  // 5. マイルストーン
+  const milestones = [500, 100, 50, 10];
+  for (const m of milestones) {
+    if (games.length >= m && games.length < m + 5) {
+      comments.push({ icon: '🎉', title: `${m}局達成！`, text: `おめでとうございます。${m}局の節目です`, priority: 70 });
+      break;
+    }
+  }
+  if (totalScore > 0) {
+    comments.push({ icon: '✅', title: 'プラス収支', text: `通算+${totalScore}のプラス。この調子！`, priority: 35 });
+  } else if (totalScore < 0) {
+    comments.push({ icon: '💰', title: 'マイナス収支', text: `通算${totalScore}。巻き返しを狙おう`, priority: 30 });
+  }
+
+  // 6. 得意時間帯
+  const bestSlot = Object.entries(hourStats)
+    .filter(([, s]) => s.count >= 3)
+    .sort((a, b) => (a[1].sum / a[1].count) - (b[1].sum / b[1].count))[0];
+  if (bestSlot && (bestSlot[1].sum / bestSlot[1].count) < avgRank - 0.2) {
+    const slotAvg = (bestSlot[1].sum / bestSlot[1].count).toFixed(2);
+    comments.push({ icon: '🕐', title: `${bestSlot[0]}が得意`, text: `平均順位${slotAvg}位（${bestSlot[1].count}局）。ゴールデンタイム？`, priority: 25 });
+  }
+
+  // 優先度順にソートして上位4個返す
+  comments.sort((a, b) => (b.priority || 0) - (a.priority || 0));
+  return comments.slice(0, 4);
+}
+
+function renderAIComments(comments) {
+  if (comments.length === 0) return '';
+  let html = '<div class="card ai-comment-card"><h3>AI分析</h3>';
+  comments.forEach(c => {
+    html += `<div class="ai-comment-item">
+      <span class="ai-comment-icon">${c.icon}</span>
+      <div class="ai-comment-body">
+        <div class="ai-comment-title">${c.title}</div>
+        <div class="ai-comment-text">${c.text}</div>
+      </div>
+    </div>`;
+  });
+  html += '</div>';
+  return html;
+}
+
 function getSessionKey(timestamp) {
   const d = new Date(timestamp);
   return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
@@ -1476,6 +1650,10 @@ function renderStatistics() {
       if (games.length >= 2) {
         renderMonthlyGraph('stats-monthly-canvas', games, statsSelectedUser);
       }
+      // ヒートマップ
+      if (games.length >= 3) {
+        renderHeatmap('stats-heatmap-canvas', games, statsSelectedUser);
+      }
     }
   }
 }
@@ -1696,6 +1874,10 @@ function renderStatsIndividual() {
   const mainPc = parseInt(Object.entries(pcCounts).sort((a, b) => b[1] - a[1])[0][0], 10);
   const dan = calcStableDan(avgRankNum, games.length, mainPc);
 
+  // AIコメント
+  const aiComments = generateAIComments(games, statsSelectedUser);
+  html += renderAIComments(aiComments);
+
   html += `<div class="stats-player-card">
     <div class="stats-player-name">${name}</div>
     <div class="stats-grid">
@@ -1732,6 +1914,14 @@ function renderStatsIndividual() {
   // 月別成績推移
   if (games.length >= 2) {
     html += '<div class="card"><h3>月別平均順位</h3><canvas class="graph-canvas" id="stats-monthly-canvas"></canvas></div>';
+  }
+
+  // ヒートマップ
+  if (games.length >= 3) {
+    html += '<div class="card"><h3>曜日×時間帯ヒートマップ</h3>';
+    html += '<p style="font-size:11px;color:#757575;margin-bottom:8px">対局時の平均順位を色で表示（緑=好調、赤=不調）</p>';
+    html += '<canvas class="graph-canvas" id="stats-heatmap-canvas"></canvas>';
+    html += '</div>';
   }
 
   // 相性マトリクス（対戦相手別詳細統計）
@@ -2504,6 +2694,107 @@ function renderIncomeGraph(canvasId, legendId, games, playerIds, rate, chipRate)
       item.innerHTML = `<span class="graph-legend-color" style="background:${PLAYER_COLORS[i]}"></span>${Store.getUserName(id)} (${sign}${lastVal}pt)`;
       legendEl.appendChild(item);
     });
+  }
+}
+
+// --- ヒートマップ（曜日×時間帯） ---
+function renderHeatmap(canvasId, games, userId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas) return;
+
+  // 曜日×時間帯の集計
+  // 行: 0=月, 1=火, ..., 6=日
+  // 列: 0=0-3時, 1=4-7時, ..., 5=20-23時
+  const grid = Array.from({ length: 7 }, () => Array.from({ length: 6 }, () => ({ sum: 0, count: 0 })));
+
+  games.forEach(g => {
+    const idx = g.playerIds.indexOf(userId);
+    if (idx < 0) return;
+    const d = new Date(g.timestamp);
+    const dow = d.getDay(); // 0=日
+    const row = dow === 0 ? 6 : dow - 1; // 月=0, ..., 日=6
+    const col = Math.floor(d.getHours() / 4);
+    grid[row][col].sum += g.rankings[idx];
+    grid[row][col].count++;
+  });
+
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.parentElement.getBoundingClientRect();
+  const w = rect.width - 16;
+  const h = 220;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  canvas.style.width = w + 'px';
+  canvas.style.height = h + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, w, h);
+
+  const dayLabels = ['月', '火', '水', '木', '金', '土', '日'];
+  const timeLabels = ['0-3', '4-7', '8-11', '12-15', '16-19', '20-23'];
+  const padding = { top: 28, left: 28, right: 10, bottom: 10 };
+  const cellW = (w - padding.left - padding.right) / 6;
+  const cellH = (h - padding.top - padding.bottom) / 7;
+
+  function getColor(avg) {
+    if (avg <= 1.5) return '#2e7d32';
+    if (avg <= 2.0) return '#66bb6a';
+    if (avg <= 2.5) return '#fdd835';
+    if (avg <= 3.0) return '#ffb74d';
+    return '#e57373';
+  }
+
+  // ヘッダー（時間帯）
+  ctx.fillStyle = '#757575';
+  ctx.font = '10px sans-serif';
+  ctx.textAlign = 'center';
+  timeLabels.forEach((label, i) => {
+    ctx.fillText(label, padding.left + cellW * i + cellW / 2, padding.top - 10);
+  });
+
+  // 行ラベル（曜日）
+  ctx.textAlign = 'right';
+  dayLabels.forEach((label, i) => {
+    ctx.fillText(label, padding.left - 6, padding.top + cellH * i + cellH / 2 + 4);
+  });
+
+  // セル描画
+  for (let row = 0; row < 7; row++) {
+    for (let col = 0; col < 6; col++) {
+      const x = padding.left + cellW * col;
+      const y = padding.top + cellH * row;
+      const cell = grid[row][col];
+
+      if (cell.count === 0) {
+        ctx.fillStyle = '#f0f0f0';
+      } else {
+        const avg = cell.sum / cell.count;
+        ctx.fillStyle = getColor(avg);
+      }
+
+      // セル背景
+      const gap = 2;
+      if (ctx.roundRect) {
+        ctx.beginPath();
+        ctx.roundRect(x + gap, y + gap, cellW - gap * 2, cellH - gap * 2, 4);
+        ctx.fill();
+      } else {
+        ctx.fillRect(x + gap, y + gap, cellW - gap * 2, cellH - gap * 2);
+      }
+
+      // セル内テキスト
+      if (cell.count > 0) {
+        const avg = cell.sum / cell.count;
+        ctx.fillStyle = avg <= 2.0 ? '#fff' : '#333';
+        ctx.font = 'bold 12px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText(avg.toFixed(1), x + cellW / 2, y + cellH / 2);
+        ctx.fillStyle = avg <= 2.0 ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.5)';
+        ctx.font = '9px sans-serif';
+        ctx.fillText(cell.count + '局', x + cellW / 2, y + cellH / 2 + 13);
+      }
+    }
   }
 }
 

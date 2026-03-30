@@ -83,6 +83,12 @@ const RATE_OPTIONS = [
   { value: 500, label: 'デカピン (1000点=500pt)' }
 ];
 
+const YAKUMAN_LIST = [
+  '国士無双', '四暗刻', '大三元', '字一色', '小四喜', '大四喜',
+  '緑一色', '清老頭', '九蓮宝燈', '四槓子', '天和', '地和',
+  'ダブル役満', 'トリプル役満'
+];
+
 const POINTS_CHILD = {
   20: { 2: [1300, '400/700'], 3: [2600, '700/1300'], 4: [5200, '1300/2600'] },
   25: { 2: [1600, '-'], 3: [3200, '800/1600'], 4: [6400, '1600/3200'] },
@@ -635,6 +641,23 @@ function generateAIComments(games, userId) {
     comments.push({ icon: '🕐', title: `${bestSlot[0]}が得意`, text: `平均順位${slotAvg}位（${bestSlot[1].count}局）。ゴールデンタイム？`, priority: 25 });
   }
 
+  // 7. 役満実績
+  let yakumanCount = 0;
+  const yakumanNames = [];
+  games.forEach(g => {
+    if (!g.yakuman) return;
+    g.yakuman.forEach(y => {
+      if (y.playerId === userId) {
+        yakumanCount++;
+        yakumanNames.push(...y.names);
+      }
+    });
+  });
+  if (yakumanCount > 0) {
+    const uniqueNames = [...new Set(yakumanNames)];
+    comments.push({ icon: '🀄', title: `役満${yakumanCount}回達成！`, text: `${uniqueNames.join('、')}`, priority: 92 });
+  }
+
   // 優先度順にソートして上位4個返す
   comments.sort((a, b) => (b.priority || 0) - (a.priority || 0));
   return comments.slice(0, 4);
@@ -654,6 +677,14 @@ function renderAIComments(comments) {
   });
   html += '</div>';
   return html;
+}
+
+function getYakumanBadge(game, playerId) {
+  if (!game.yakuman || game.yakuman.length === 0) return '';
+  const entries = game.yakuman.filter(y => y.playerId === playerId);
+  if (entries.length === 0) return '';
+  const names = entries.map(y => y.names.join('・')).join(', ');
+  return `<br><small class="yakuman-badge">${names}</small>`;
 }
 
 function getSessionKey(timestamp) {
@@ -1155,10 +1186,123 @@ window.recordGame = function () {
     if (chipEl) chipEl.value = '0';
   }
 
-  // Show results tab with this group (today's session)
-  resultsMode = 'group';
-  resultsSelectedGroup = game.groupKey;
-  resultsSessionFilter = 'today';
+  // 役満記録モーダルを表示
+  showYakumanPrompt(game.id, game.playerIds);
+};
+
+window.showYakumanPrompt = function (gameId, playerIds) {
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay';
+  overlay.id = 'yakuman-prompt';
+  overlay.innerHTML = `
+    <div class="modal-content" style="max-width:340px">
+      <div class="modal-title">対局を記録しました</div>
+      <p style="color:var(--text-secondary);font-size:13px;margin-bottom:16px">この対局で役満はありましたか？</p>
+      <div class="modal-actions">
+        <button class="btn btn-secondary btn-small" onclick="skipYakuman('${gameId}')">なし</button>
+        <button class="btn btn-primary btn-small" onclick="openYakumanInput('${gameId}', '${playerIds.join(',')}')">役満を記録</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  overlay.addEventListener('click', (e) => { if (e.target === overlay) skipYakuman(gameId); });
+};
+
+window.skipYakuman = function (gameId) {
+  const el = document.getElementById('yakuman-prompt');
+  if (el) el.remove();
+  // 成績画面に遷移
+  const game = Store.getGames().find(g => g.id === gameId);
+  if (game) {
+    resultsMode = 'group';
+    resultsSelectedGroup = game.groupKey;
+    resultsSessionFilter = 'today';
+  }
+  switchTab('results');
+};
+
+window.openYakumanInput = function (gameId, playerIdsStr) {
+  const playerIds = playerIdsStr.split(',');
+  const el = document.getElementById('yakuman-prompt');
+  if (!el) return;
+
+  const modal = el.querySelector('.modal-content');
+  let html = '<div class="modal-title">役満を記録</div>';
+
+  // プレイヤー選択
+  html += '<div class="section-title" style="margin-top:0">誰が上がった？</div>';
+  html += '<div class="chip-list">';
+  playerIds.forEach(id => {
+    html += `<button class="chip-item" data-player-id="${id}" onclick="toggleYakumanPlayer(this)">${Store.getUserName(id)}</button>`;
+  });
+  html += '</div>';
+
+  // 役満選択
+  html += '<div class="section-title">役満の種類</div>';
+  html += '<div class="chip-list">';
+  YAKUMAN_LIST.forEach(y => {
+    html += `<button class="chip-item" data-yakuman="${y}" onclick="toggleYakumanType(this)">${y}</button>`;
+  });
+  html += '</div>';
+
+  html += `<div class="modal-actions" style="margin-top:16px">
+    <button class="btn btn-secondary btn-small" onclick="skipYakuman('${gameId}')">キャンセル</button>
+    <button class="btn btn-primary btn-small" onclick="saveYakuman('${gameId}')">記録する</button>
+  </div>`;
+  html += '<p id="yakuman-error" class="error-msg"></p>';
+
+  modal.innerHTML = html;
+};
+
+window.toggleYakumanPlayer = function (btn) {
+  // 単一選択
+  btn.parentElement.querySelectorAll('.chip-item').forEach(b => b.classList.remove('selected'));
+  btn.classList.add('selected');
+};
+
+window.toggleYakumanType = function (btn) {
+  btn.classList.toggle('selected');
+};
+
+window.saveYakuman = function (gameId) {
+  const overlay = document.getElementById('yakuman-prompt');
+  if (!overlay) return;
+
+  const errorEl = document.getElementById('yakuman-error');
+
+  // 選択されたプレイヤー
+  const playerBtn = overlay.querySelector('.chip-item[data-player-id].selected');
+  if (!playerBtn) {
+    errorEl.textContent = 'プレイヤーを選択してください';
+    return;
+  }
+  const playerId = playerBtn.dataset.playerId;
+
+  // 選択された役満
+  const yakumanBtns = overlay.querySelectorAll('.chip-item[data-yakuman].selected');
+  if (yakumanBtns.length === 0) {
+    errorEl.textContent = '役満の種類を選択してください';
+    return;
+  }
+  const yakumanNames = Array.from(yakumanBtns).map(b => b.dataset.yakuman);
+
+  // ゲームデータに保存
+  const games = Store.getGames();
+  const game = games.find(g => g.id === gameId);
+  if (game) {
+    if (!game.yakuman) game.yakuman = [];
+    game.yakuman.push({ playerId, names: yakumanNames });
+    Store.saveGames(games);
+  }
+
+  overlay.remove();
+
+  // 成績画面に遷移
+  if (game) {
+    resultsMode = 'group';
+    resultsSelectedGroup = game.groupKey;
+    resultsSessionFilter = 'today';
+  }
   switchTab('results');
 };
 
@@ -1341,7 +1485,8 @@ function renderResultsGroup() {
           const sign = score >= 0 ? '+' : '';
           const rankBadge = game.rankings[pi] === 1 ? ' (1)' : '';
           const chipDisplay = (game.chips && game.chips[pi] !== 0) ? `<br><small class="chip-badge">${game.chips[pi] > 0 ? '+' : ''}${game.chips[pi]}枚</small>` : '';
-          html += `<td class="${cls}">${sign}${score}${rankBadge}${chipDisplay}</td>`;
+          const yakumanDisplay = getYakumanBadge(game, game.playerIds[pi]);
+          html += `<td class="${cls}">${sign}${score}${rankBadge}${chipDisplay}${yakumanDisplay}</td>`;
         });
         html += `<td><button class="btn-delete-game" data-game-id="${game.id}" title="削除">x</button></td></tr>`;
       });
@@ -1371,7 +1516,8 @@ function renderResultsGroup() {
         const sign = score >= 0 ? '+' : '';
         const rankBadge = game.rankings[pi] === 1 ? ' (1)' : '';
         const chipDisplay = (game.chips && game.chips[pi] !== 0) ? `<br><small class="chip-badge">${game.chips[pi] > 0 ? '+' : ''}${game.chips[pi]}枚</small>` : '';
-        html += `<td class="${cls}">${sign}${score}${rankBadge}${chipDisplay}</td>`;
+        const yakumanDisplay = getYakumanBadge(game, game.playerIds[pi]);
+        html += `<td class="${cls}">${sign}${score}${rankBadge}${chipDisplay}${yakumanDisplay}</td>`;
       });
       html += `<td><button class="btn-delete-game" data-game-id="${game.id}" title="削除">x</button></td></tr>`;
     });

@@ -1099,6 +1099,18 @@ h3 {
 }
 
 /* AI Comment Card */
+/* Yakuman Badge */
+.yakuman-badge {
+  display: inline-block;
+  background: linear-gradient(135deg, #f9a825, #ff6f00);
+  color: #fff;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  margin-top: 2px;
+}
+
 .ai-comment-card {
   background: linear-gradient(135deg, #f8fffe 0%, #f0f7ff 100%);
   border: 1px solid #e0e8f0;

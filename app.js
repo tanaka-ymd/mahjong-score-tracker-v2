@@ -1825,7 +1825,7 @@ function renderSettings() {
 
   html += '<div class="card"><div class="data-section-title">インポート</div>';
   html += '<p class="data-description">JSONファイルからデータを復元します。現在のデータは上書きされます。</p>';
-  html += '<input type="file" id="import-file" accept=".json" style="display:none">';
+  html += '<input type="file" id="import-file" accept=".json,application/json" style="display:none">';
   html += '<button class="btn btn-primary" onclick="importData()">データをインポート</button></div>';
 
   html += '<div class="card"><div class="data-section-title">v1データ移行</div>';
@@ -1945,6 +1945,8 @@ window.exportData = function () {
 
 window.importData = function () {
   const fileInput = document.getElementById('import-file');
+  // Androidで同じファイル再選択時にonchangeが発火するようリセット
+  fileInput.value = '';
   fileInput.onchange = (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -1961,9 +1963,9 @@ window.importData = function () {
       } catch (err) {
         alert('インポートに失敗しました: ' + err.message);
       }
+      fileInput.value = '';
     };
     reader.readAsText(file);
-    fileInput.value = '';
   };
   fileInput.click();
 };

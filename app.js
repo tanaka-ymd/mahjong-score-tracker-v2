@@ -111,6 +111,38 @@ const POINTS_PARENT = {
   110: { 1: [5300, '1800ALL'], 2: [10600, '3600ALL'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] }
 };
 
+// 3人麻雀ツモ損なし（北家分を残り2人で折半）
+// 計算方式: 通常4人麻雀のツモ支払い額を算出後、北家(子)の支払い分をceil100で折半して加算
+// 子のツモ: 子払い=通常子払い+ceil100(北家子払い/2), 親払い=通常親払い+ceil100(北家子払い/2)
+// 親のツモ: 子払い=通常子払い+ceil100(北家子払い/2) ALL
+const POINTS_CHILD_NO_TSUMOZON = {
+  20: { 2: [1300, '600/900'], 3: [2600, '1100/1700'], 4: [5200, '2000/3300'] },
+  25: { 2: [1600, '-'], 3: [3200, '1200/2000'], 4: [6400, '2400/4000'] },
+  30: { 1: [1000, '500/700'], 2: [2000, '800/1300'], 3: [3900, '1500/2500'], 4: [7700, '3000/4900'] },
+  40: { 1: [1300, '600/900'], 2: [2600, '1100/1700'], 3: [5200, '2000/3300'], 4: ['満貫', '満貫'] },
+  50: { 1: [1600, '600/1000'], 2: [3200, '1200/2000'], 3: [6400, '2400/4000'], 4: ['満貫', '満貫'] },
+  60: { 1: [2000, '800/1300'], 2: [3900, '1500/2500'], 3: [7700, '3000/4900'], 4: ['満貫', '満貫'] },
+  70: { 1: [2300, '900/1500'], 2: [4500, '1800/2900'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  80: { 1: [2600, '1100/1700'], 2: [5200, '2000/3300'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  90: { 1: [2900, '1200/1900'], 2: [5800, '2300/3700'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  100: { 1: [3200, '1200/2000'], 2: [6400, '2400/4000'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  110: { 1: [3600, '1400/2300'], 2: [7100, '2700/4500'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] }
+};
+
+const POINTS_PARENT_NO_TSUMOZON = {
+  20: { 2: [2000, '1100ALL'], 3: [3900, '2000ALL'], 4: [7700, '3900ALL'] },
+  25: { 2: [2400, '1200ALL'], 3: [4800, '2400ALL'], 4: [9600, '4800ALL'] },
+  30: { 1: [1500, '800ALL'], 2: [2900, '1500ALL'], 3: [5800, '3000ALL'], 4: [11600, '5900ALL'] },
+  40: { 1: [2000, '1100ALL'], 2: [3900, '2000ALL'], 3: [7700, '3900ALL'], 4: ['満貫', '満貫'] },
+  50: { 1: [2400, '1200ALL'], 2: [4800, '2400ALL'], 3: [9600, '4800ALL'], 4: ['満貫', '満貫'] },
+  60: { 1: [2900, '1500ALL'], 2: [5800, '3000ALL'], 3: [11600, '5900ALL'], 4: ['満貫', '満貫'] },
+  70: { 1: [3400, '1800ALL'], 2: [6800, '3500ALL'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  80: { 1: [3900, '2000ALL'], 2: [7700, '3900ALL'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  90: { 1: [4400, '2300ALL'], 2: [8700, '4400ALL'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  100: { 1: [4800, '2400ALL'], 2: [9600, '4800ALL'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] },
+  110: { 1: [5300, '2700ALL'], 2: [10600, '5400ALL'], 3: ['満貫', '満貫'], 4: ['満貫', '満貫'] }
+};
+
 // ================================================================
 // [2] Store
 // ================================================================
@@ -351,28 +383,40 @@ function calculateGame(rawScores, umaStr, okaStr, count) {
   const [startPoints, returnPoints] = okaStr.split('-').map(Number);
   const [umaSmall, umaBig] = umaStr.split('-').map(Number);
 
+  // 全員の点数が開始点と同じ（点数の動きなし）場合はウマ・オカをスキップ
+  const allSameAsStart = rawScores.every(s => s === startPoints);
+
   const adjusted = rawScores.map(s => (s - returnPoints) / 1000);
   const indexed = adjusted.map((score, i) => ({ score, index: i }));
   indexed.sort((a, b) => b.score - a.score);
 
   const rankings = new Array(count);
-  indexed.forEach((item, rank) => { rankings[item.index] = rank + 1; });
-
-  let umaValues;
-  if (count === 4) {
-    umaValues = [umaBig, umaSmall, -umaSmall, -umaBig];
-  } else {
-    umaValues = [umaBig, 0, -umaBig];
-  }
-
   const finalScores = new Array(count);
-  indexed.forEach((item, rank) => {
-    finalScores[item.index] = adjusted[item.index] + umaValues[rank];
-  });
 
-  if (startPoints !== returnPoints) {
-    const oka = ((returnPoints - startPoints) * count) / 1000;
-    finalScores[indexed[0].index] += oka;
+  if (allSameAsStart) {
+    // チップのみの対局：ウマ・オカを適用しない、全員同着
+    for (let i = 0; i < count; i++) {
+      rankings[i] = 1;
+      finalScores[i] = 0;
+    }
+  } else {
+    indexed.forEach((item, rank) => { rankings[item.index] = rank + 1; });
+
+    let umaValues;
+    if (count === 4) {
+      umaValues = [umaBig, umaSmall, -umaSmall, -umaBig];
+    } else {
+      umaValues = [umaBig, 0, -umaBig];
+    }
+
+    indexed.forEach((item, rank) => {
+      finalScores[item.index] = adjusted[item.index] + umaValues[rank];
+    });
+
+    if (startPoints !== returnPoints) {
+      const oka = ((returnPoints - startPoints) * count) / 1000;
+      finalScores[indexed[0].index] += oka;
+    }
   }
 
   return {
@@ -447,6 +491,7 @@ let resultsMode = 'group'; // 'group' | 'individual'
 let resultsSelectedGroup = '';
 let resultsSelectedUser = '';
 let resultsRate = 50;
+let resultsSessionFilter = 'today'; // 'today' | 'all' | 日付文字列(yyyy/mm/dd)
 
 let statsMode = 'all'; // 'all' | 'group' | 'individual'
 let statsSelectedGroup = '';
@@ -454,6 +499,7 @@ let statsSelectedUser = '';
 
 let toolsMode = 'points'; // 'points' | 'fu'
 let pointsDealer = 'child';
+let pointsTsumozon = true; // true=ツモ損あり, false=ツモ損なし
 
 // ---- Tab Navigation ----
 document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -876,9 +922,10 @@ window.recordGame = function () {
     if (chipEl) chipEl.value = '0';
   }
 
-  // Show results tab with this group
+  // Show results tab with this group (today's session)
   resultsMode = 'group';
   resultsSelectedGroup = game.groupKey;
+  resultsSessionFilter = 'today';
   switchTab('results');
 };
 
@@ -901,7 +948,8 @@ function renderResults() {
 
   // Render graphs after DOM is set
   if (resultsMode === 'group' && resultsSelectedGroup) {
-    const games = Store.getGamesByGroup(resultsSelectedGroup);
+    const allGroupGames = Store.getGamesByGroup(resultsSelectedGroup);
+    const games = filterGamesBySession(allGroupGames, resultsSessionFilter);
     if (games.length >= 2) {
       renderScoreGraph('results-graph-canvas', 'results-graph-tooltip', 'results-graph-legend', games);
     }
@@ -919,6 +967,17 @@ window.setResultsMode = function (mode) {
   resultsMode = mode;
   renderResults();
 };
+
+function getTodaySessionKey() {
+  const d = new Date();
+  return `${d.getFullYear()}/${String(d.getMonth() + 1).padStart(2, '0')}/${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function filterGamesBySession(games, filter) {
+  if (filter === 'all') return games;
+  const targetDate = filter === 'today' ? getTodaySessionKey() : filter;
+  return games.filter(g => getSessionKey(g.timestamp) === targetDate);
+}
 
 function renderResultsGroup() {
   const allGames = Store.getGames();
@@ -941,8 +1000,31 @@ function renderResultsGroup() {
   });
   html += '</select>';
 
-  const games = Store.getGamesByGroup(resultsSelectedGroup);
-  if (games.length === 0) return html + '<div class="empty-state"><p>対局データがありません</p></div>';
+  const allGroupGames = Store.getGamesByGroup(resultsSelectedGroup);
+  if (allGroupGames.length === 0) return html + '<div class="empty-state"><p>対局データがありません</p></div>';
+
+  // セッション（日付）フィルター
+  const sessionDates = [...new Set(allGroupGames.map(g => getSessionKey(g.timestamp)))].sort().reverse();
+  const todayKey = getTodaySessionKey();
+
+  // todayフィルターで今日のデータがない場合はallにフォールバック
+  if (resultsSessionFilter === 'today' && !sessionDates.includes(todayKey)) {
+    resultsSessionFilter = 'all';
+  }
+
+  html += '<div class="session-filter" style="margin-top:12px">';
+  html += '<select class="dropdown-select" onchange="changeSessionFilter(this.value)">';
+  html += `<option value="today" ${resultsSessionFilter === 'today' ? 'selected' : ''}>今日 (${todayKey})</option>`;
+  html += `<option value="all" ${resultsSessionFilter === 'all' ? 'selected' : ''}>全期間</option>`;
+  sessionDates.forEach(date => {
+    if (date === todayKey) return;
+    const gamesOnDate = allGroupGames.filter(g => getSessionKey(g.timestamp) === date);
+    html += `<option value="${date}" ${resultsSessionFilter === date ? 'selected' : ''}>${date} (${gamesOnDate.length}局)</option>`;
+  });
+  html += '</select></div>';
+
+  const games = filterGamesBySession(allGroupGames, resultsSessionFilter);
+  if (games.length === 0) return html + '<div class="empty-state"><p>選択した期間に対局データがありません</p></div>';
 
   const playerIds = games[0].playerIds;
   const count = games[0].playerCount;
@@ -1136,6 +1218,12 @@ function renderSettlement(games, playerIds, count, chipRate) {
 
 window.changeResultsGroup = function (groupKey) {
   resultsSelectedGroup = groupKey;
+  resultsSessionFilter = 'today'; // グループ変更時はデフォルトに戻す
+  renderResults();
+};
+
+window.changeSessionFilter = function (val) {
+  resultsSessionFilter = val;
   renderResults();
 };
 
@@ -1507,7 +1595,18 @@ function renderPointsTable() {
   html += `<button class="toggle-btn ${pointsDealer === 'parent' ? 'active' : ''}" onclick="setPointsDealer('parent')">親</button>`;
   html += '</div>';
 
-  const data = pointsDealer === 'child' ? POINTS_CHILD : POINTS_PARENT;
+  html += '<div class="toggle-row" style="margin-top:8px">';
+  html += `<button class="toggle-btn ${pointsTsumozon ? 'active' : ''}" onclick="setPointsTsumozon(true)">ツモ損あり</button>`;
+  html += `<button class="toggle-btn ${!pointsTsumozon ? 'active' : ''}" onclick="setPointsTsumozon(false)">ツモ損なし</button>`;
+  html += '<span style="font-size:11px;color:#757575;margin-left:8px">※3麻用</span>';
+  html += '</div>';
+
+  let data;
+  if (pointsTsumozon) {
+    data = pointsDealer === 'child' ? POINTS_CHILD : POINTS_PARENT;
+  } else {
+    data = pointsDealer === 'child' ? POINTS_CHILD_NO_TSUMOZON : POINTS_PARENT_NO_TSUMOZON;
+  }
   const fuList = [20, 25, 30, 40, 50, 60, 70, 80, 90, 100, 110];
 
   html += '<div class="table-wrapper"><table class="points-table"><thead><tr><th>符＼翻</th><th>1翻</th><th>2翻</th><th>3翻</th><th>4翻</th></tr></thead><tbody>';
@@ -1528,12 +1627,27 @@ function renderPointsTable() {
   html += '</tbody></table></div>';
 
   const isParent = pointsDealer === 'parent';
+  const noTsumozon = !pointsTsumozon;
   html += '<div class="card mangan-list"><h4>満貫以上</h4>';
-  html += `<div class="mangan-item"><span class="label">満貫 (5翻)</span><span class="values">${isParent ? 'ロン12000 / ツモ4000ALL' : 'ロン8000 / ツモ2000/4000'}</span></div>`;
-  html += `<div class="mangan-item"><span class="label">跳満 (6-7翻)</span><span class="values">${isParent ? 'ロン18000 / ツモ6000ALL' : 'ロン12000 / ツモ3000/6000'}</span></div>`;
-  html += `<div class="mangan-item"><span class="label">倍満 (8-10翻)</span><span class="values">${isParent ? 'ロン24000 / ツモ8000ALL' : 'ロン16000 / ツモ4000/8000'}</span></div>`;
-  html += `<div class="mangan-item"><span class="label">三倍満 (11-12翻)</span><span class="values">${isParent ? 'ロン36000 / ツモ12000ALL' : 'ロン24000 / ツモ6000/12000'}</span></div>`;
-  html += `<div class="mangan-item"><span class="label">役満</span><span class="values">${isParent ? 'ロン48000 / ツモ16000ALL' : 'ロン32000 / ツモ8000/16000'}</span></div>`;
+  if (isParent) {
+    html += `<div class="mangan-item"><span class="label">満貫 (5翻)</span><span class="values">ロン12000 / ツモ${noTsumozon ? '6000' : '4000'}ALL</span></div>`;
+    html += `<div class="mangan-item"><span class="label">跳満 (6-7翻)</span><span class="values">ロン18000 / ツモ${noTsumozon ? '9000' : '6000'}ALL</span></div>`;
+    html += `<div class="mangan-item"><span class="label">倍満 (8-10翻)</span><span class="values">ロン24000 / ツモ${noTsumozon ? '12000' : '8000'}ALL</span></div>`;
+    html += `<div class="mangan-item"><span class="label">三倍満 (11-12翻)</span><span class="values">ロン36000 / ツモ${noTsumozon ? '18000' : '12000'}ALL</span></div>`;
+    html += `<div class="mangan-item"><span class="label">役満</span><span class="values">ロン48000 / ツモ${noTsumozon ? '24000' : '16000'}ALL</span></div>`;
+    if (noTsumozon) {
+      html += '<p style="font-size:11px;color:#757575;margin-top:8px">※北家(子)の支払い分を残り2人で折半(100点単位切り上げ)</p>';
+    }
+  } else {
+    html += `<div class="mangan-item"><span class="label">満貫 (5翻)</span><span class="values">ロン8000 / ツモ${noTsumozon ? '3000/5000' : '2000/4000'}</span></div>`;
+    html += `<div class="mangan-item"><span class="label">跳満 (6-7翻)</span><span class="values">ロン12000 / ツモ${noTsumozon ? '4500/7500' : '3000/6000'}</span></div>`;
+    html += `<div class="mangan-item"><span class="label">倍満 (8-10翻)</span><span class="values">ロン16000 / ツモ${noTsumozon ? '6000/10000' : '4000/8000'}</span></div>`;
+    html += `<div class="mangan-item"><span class="label">三倍満 (11-12翻)</span><span class="values">ロン24000 / ツモ${noTsumozon ? '9000/15000' : '6000/12000'}</span></div>`;
+    html += `<div class="mangan-item"><span class="label">役満</span><span class="values">ロン32000 / ツモ${noTsumozon ? '12000/20000' : '8000/16000'}</span></div>`;
+    if (noTsumozon) {
+      html += '<p style="font-size:11px;color:#757575;margin-top:8px">※北家(子)の支払い分を残り2人で折半(100点単位切り上げ)</p>';
+    }
+  }
   html += '</div>';
 
   return html;
@@ -1541,6 +1655,11 @@ function renderPointsTable() {
 
 window.setPointsDealer = function (dealer) {
   pointsDealer = dealer;
+  renderTools();
+};
+
+window.setPointsTsumozon = function (val) {
+  pointsTsumozon = val;
   renderTools();
 };
 

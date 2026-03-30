@@ -160,13 +160,46 @@ function getGroupKey(playerIds) {
   return [...playerIds].sort().join(',');
 }
 
+function getStorageUsage() {
+  let total = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    total += key.length + (localStorage.getItem(key) || '').length;
+  }
+  return total * 2; // UTF-16 = 2 bytes per char
+}
+
+let storageWarningShown = false;
+function checkStorageWarning() {
+  if (storageWarningShown) return;
+  const used = getStorageUsage();
+  const limit = 5 * 1024 * 1024; // 5MB (一般的なlocalStorage上限)
+  const ratio = used / limit;
+  if (ratio > 0.8) {
+    storageWarningShown = true;
+    const usedKB = Math.round(used / 1024);
+    const limitKB = Math.round(limit / 1024);
+    alert(`データ容量が残りわずかです (${usedKB}KB / ${limitKB}KB 使用中)\n設定画面からエクスポートでバックアップを取ることをおすすめします。`);
+  }
+}
+
+function safeSave(key, value) {
+  try {
+    localStorage.setItem(key, value);
+    checkStorageWarning();
+  } catch (e) {
+    alert('データの保存に失敗しました。容量が一杯の可能性があります。\n設定画面からエクスポートでバックアップを取ってください。');
+    throw e;
+  }
+}
+
 const Store = {
   // --- Users ---
   getUsers() {
     try { return JSON.parse(localStorage.getItem('mjt2-users')) || []; } catch { return []; }
   },
   saveUsers(users) {
-    localStorage.setItem('mjt2-users', JSON.stringify(users));
+    safeSave('mjt2-users', JSON.stringify(users));
   },
   addUser(name) {
     const users = this.getUsers();
@@ -202,7 +235,7 @@ const Store = {
     try { return JSON.parse(localStorage.getItem('mjt2-games')) || []; } catch { return []; }
   },
   saveGames(games) {
-    localStorage.setItem('mjt2-games', JSON.stringify(games));
+    safeSave('mjt2-games', JSON.stringify(games));
   },
   addGame(game) {
     const games = this.getGames();
@@ -235,7 +268,7 @@ const Store = {
     } catch { return defaults; }
   },
   saveSettings(settings) {
-    localStorage.setItem('mjt2-settings', JSON.stringify(settings));
+    safeSave('mjt2-settings', JSON.stringify(settings));
   },
 
   // --- Recent Groups ---
@@ -243,7 +276,7 @@ const Store = {
     try { return JSON.parse(localStorage.getItem('mjt2-recent-groups')) || []; } catch { return []; }
   },
   saveRecentGroups(groups) {
-    localStorage.setItem('mjt2-recent-groups', JSON.stringify(groups));
+    safeSave('mjt2-recent-groups', JSON.stringify(groups));
   },
   updateRecentGroup(playerIds, timestamp) {
     const groups = this.getRecentGroups();
